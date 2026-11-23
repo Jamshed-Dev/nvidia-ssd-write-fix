@@ -86,7 +86,7 @@ The tool checks all of this for you in 20 seconds.
 
 ## What you will see
 
-**1. Scan.** The tool measures how much `NVDisplay.Container.exe` writes, shows the result in plain words and highlights the best next step. Press Enter to run it.
+**1. Scan.** The tool measures how much `NVDisplay.Container.exe` writes, shows the result in plain words and highlights the best next step. Press **Enter** to run it, move with the **↑ / ↓ arrow keys**, or press a number (**1–5**, **U**, **Q**) as a shortcut. **Esc** quits.
 
 <p align="center">
   <img src="docs/screen-bug-detected.svg" alt="Scan result: NVIDIA driver 621.24 has the bug, NVDisplay.Container.exe writing 47.1 GB per hour, fix recommended" width="708">

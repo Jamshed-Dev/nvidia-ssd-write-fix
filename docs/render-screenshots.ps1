@@ -132,13 +132,6 @@ $($body.ToString())
     Reset-Screen
 }
 
-function Write-SamplePrompt([string]$Key) {
-    Write-Seg ('  ' + $Glyph.Arrow + ' ') Yellow
-    Write-Seg 'Your choice ' White
-    Write-Seg "(Enter = $Key): " DarkGray
-    Write-Host ''
-}
-
 # ---- Sample machine states ------------------------------------------------------
 function New-SampleState([hashtable]$Override) {
     $state = @{ HasGpu = $true; GpuName = 'NVIDIA GeForce RTX 3060'; Version = '621.24'; IsAffected = $true
@@ -160,7 +153,6 @@ Write-ScanProgress 20 20 268.0
 Write-Host ''
 Show-Report $bug
 Show-Options (Get-RecommendedChoice $bug) $bug.State
-Write-SamplePrompt '1'
 Save-Svg 'screen-bug-detected.svg'
 
 # 2. Fix applied and verified
@@ -171,12 +163,10 @@ Write-ScanProgress 20 20 0.0
 Write-Host ''
 Show-Report $fixed $bug
 Show-Options (Get-RecommendedChoice $fixed) $fixed.State
-Write-SamplePrompt '3'
 Save-Svg 'screen-fix-verified.svg'
 
 # 3. Auto-protect on
 Show-Header
 Show-Report $guarded
 Show-Options (Get-RecommendedChoice $guarded) $guarded.State
-Write-SamplePrompt 'Q'
 Save-Svg 'screen-all-good.svg'

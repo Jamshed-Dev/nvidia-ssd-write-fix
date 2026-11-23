@@ -74,7 +74,9 @@ $Glyph = @{
     DBL = [string][char]0x255A; DBR = [string][char]0x255D
     Full = [string][char]0x2588; Shade = [string][char]0x2591
     Arrow = [string][char]0x25BA; Back = [string][char]0x25C4; Dot = [string][char]0x25CF
+    Up = [string][char]0x2191; Down = [string][char]0x2193; Mid = [string][char]0x00B7
 }
+$MenuRowWidth = 79
 
 function Write-Seg([string]$Text, [string]$Fg = 'Gray', [string]$Bg = '') {
     if ($Bg) { Write-Host $Text -NoNewline -ForegroundColor $Fg -BackgroundColor $Bg }
@@ -152,13 +154,21 @@ function Write-Banner([string]$Title, [string]$Fg, [string]$Bg, [string[]]$Lines
     foreach ($line in $Lines) { Write-Status "     $line" 'Gray' }
 }
 
-function Write-MenuItem([string]$Key, [string]$Label, [string]$Hint, [bool]$IsRecommended) {
-    Write-Seg '   '
-    if ($IsRecommended) { Write-Seg " $Key " Black Yellow } else { Write-Seg " $Key " White DarkGray }
-    $labelColor = if ($IsRecommended) { 'Yellow' } else { 'White' }
-    Write-Seg ('  ' + (Get-Fitted $Label 38)) $labelColor
-    Write-Seg (Get-Fitted $Hint 25) DarkGray
-    if ($IsRecommended) { Write-Seg ($Glyph.Back + ' BEST') Yellow }
+# Every row is padded to the same width so redrawing in place leaves no leftovers.
+function Write-MenuItem([string]$Key, [string]$Label, [string]$Hint, [bool]$IsRecommended, [bool]$IsSelected) {
+    if ($IsSelected) {
+        Write-Seg ('  ' + $Glyph.Arrow) Cyan
+        Write-Seg " $Key " Black Cyan
+        Write-Seg ('  ' + (Get-Fitted $Label 38) + ' ') Black Cyan
+    } else {
+        Write-Seg '   '
+        if ($IsRecommended) { Write-Seg " $Key " Black Yellow } else { Write-Seg " $Key " White DarkGray }
+        $labelColor = if ($IsRecommended) { 'Yellow' } else { 'White' }
+        Write-Seg ('  ' + (Get-Fitted $Label 38) + ' ') $labelColor
+    }
+    Write-Seg (' ' + (Get-Fitted $Hint 24)) DarkGray
+    $suffix = if ($IsRecommended) { ' ' + $Glyph.Back + ' BEST' } else { '' }
+    Write-Seg $suffix.PadRight($MenuRowWidth - 72) Yellow
     Write-Host ''
 }
 
@@ -517,7 +527,7 @@ function Invoke-Guard {
 
 # =================================== Menu ===================================
 
-function Show-Options([string]$Recommended, $State) {
+function Get-MenuOptions($State) {
     $guardLabel = if ($State.GuardInstalled) { 'Turn off auto-protect' } else { 'Turn on auto-protect' }
     $options = @(
         @('1', 'Fix now (turn off the buggy plugin)', '~30 s, keeps your driver'),
@@ -528,12 +538,31 @@ function Show-Options([string]$Recommended, $State) {
     )
     if ($State.PluginDisabled -or $State.GuardInstalled) { $options += , @('U', 'Undo all changes', 'back to NVIDIA defaults') }
     $options += , @('Q', 'Quit', '')
+    return , $options
+}
 
+function Get-OptionIndex($Options, [string]$Key) {
+    for ($i = 0; $i -lt $Options.Count; $i++) { if ($Options[$i][0] -eq $Key) { return $i } }
+    return 0
+}
+
+function Write-MenuItems($Options, [string]$Recommended, [int]$SelectedIndex) {
+    for ($i = 0; $i -lt $Options.Count; $i++) {
+        $o = $Options[$i]
+        Write-MenuItem $o[0] $o[1] $o[2] ($o[0] -eq $Recommended) ($i -eq $SelectedIndex)
+    }
+}
+
+function Show-Options([string]$Recommended, $State) {
+    $options = Get-MenuOptions $State
     Write-Host ''
     Write-Status '  WHAT WOULD YOU LIKE TO DO?' White
     Write-Host ''
-    foreach ($o in $options) { Write-MenuItem $o[0] $o[1] $o[2] ($o[0] -eq $Recommended) }
+    Write-MenuItems $options $Recommended (Get-OptionIndex $options $Recommended)
     Write-Host ''
+    $keys = ($options | ForEach-Object { $_[0] } | Where-Object { $_ -match '\d' }) -join ''
+    Write-Status ("  {0}{1} move  {2}  Enter select  {2}  {3}-{4} or letter shortcut  {2}  Esc quit" -f `
+        $Glyph.Up, $Glyph.Down, $Glyph.Mid, $keys[0], $keys[-1]) DarkGray
 }
 
 # Runs one menu action; returns the new diagnosis (rescans only when writes may have changed).
@@ -555,7 +584,9 @@ function Get-ValidChoices($State) {
     return $valid
 }
 
+# Typed fallback for hosts without key-by-key input (redirected stdin, ISE).
 function Read-Choice([string]$Recommended) {
+    Write-Host ''
     Write-Seg ('  ' + $Glyph.Arrow + ' ') Yellow
     Write-Seg 'Your choice ' White
     Write-Seg "(Enter = $Recommended): " DarkGray
@@ -563,6 +594,60 @@ function Read-Choice([string]$Recommended) {
     if ($null -eq $choice) { return 'Q' }
     $choice = $choice.Trim().ToUpper()
     if ($choice -eq '') { return $Recommended }
+    return $choice
+}
+
+function Test-ArrowKeysSupported {
+    try { return ($Host.Name -eq 'ConsoleHost') -and -not [Console]::IsInputRedirected }
+    catch { return $false }
+}
+
+# Pure key handling: returns @{ Index = new highlight } or @{ Choice = key to run }.
+function Resolve-MenuKey($Options, [int]$Selected, [string]$KeyName, [string]$KeyChar) {
+    $count = $Options.Count
+    switch ($KeyName) {
+        'UpArrow'   { return @{ Index = ($Selected - 1 + $count) % $count } }
+        'DownArrow' { return @{ Index = ($Selected + 1) % $count } }
+        'Home'      { return @{ Index = 0 } }
+        'End'       { return @{ Index = $count - 1 } }
+        'Enter'     { return @{ Choice = $Options[$Selected][0] } }
+        'Escape'    { return @{ Choice = 'Q' } }
+    }
+    $typed = "$KeyChar".ToUpper()
+    if ($typed -and $Options[(Get-OptionIndex $Options $typed)][0] -eq $typed) { return @{ Choice = $typed } }
+    return @{ Index = $Selected }
+}
+
+# Arrow-key selection over the menu that Show-Options just drew (rows end 2 lines above the cursor).
+function Select-MenuOption($Options, [string]$Recommended) {
+    $selected = Get-OptionIndex $Options $Recommended
+    $bottom = [Console]::CursorTop
+    $top = $bottom - 2 - $Options.Count
+    $cursorWasVisible = [Console]::CursorVisible
+    [Console]::CursorVisible = $false
+    try {
+        while ($true) {
+            $key = [Console]::ReadKey($true)
+            $result = Resolve-MenuKey $Options $selected "$($key.Key)" "$($key.KeyChar)"
+            if ($result.ContainsKey('Choice')) { return $result.Choice }
+            if ($result.Index -eq $selected) { continue }
+            $selected = $result.Index
+            [Console]::SetCursorPosition(0, $top)
+            Write-MenuItems $Options $Recommended $selected
+            [Console]::SetCursorPosition(0, $bottom)
+        }
+    } finally {
+        [Console]::CursorVisible = $cursorWasVisible
+    }
+}
+
+function Get-MenuChoice($State, [string]$Recommended) {
+    if (-not (Test-ArrowKeysSupported)) { return Read-Choice $Recommended }
+    $options = Get-MenuOptions $State
+    $choice = Select-MenuOption $options $Recommended
+    $label = $options[(Get-OptionIndex $options $choice)][1]
+    Write-Host ''
+    Write-Step "Selected: $label" Cyan
     return $choice
 }
 
@@ -578,8 +663,8 @@ function Show-Menu {
         if (-not $diagnosis.State.HasGpu) { break }
         $recommended = Get-RecommendedChoice $diagnosis
         Show-Options $recommended $diagnosis.State
-        $choice = Read-Choice $recommended
-        if ($choice -eq 'Q') { Write-Host ''; Write-Step 'Bye! Your SSD thanks you.' Cyan; break }
+        $choice = Get-MenuChoice $diagnosis.State $recommended
+        if ($choice -eq 'Q') { Write-Step 'Bye! Your SSD thanks you.' Cyan; break }
         if ((Get-ValidChoices $diagnosis.State) -notcontains $choice) {
             Write-Step 'Please type one of the keys shown.' Yellow
             continue
