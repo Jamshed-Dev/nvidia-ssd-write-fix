@@ -44,6 +44,7 @@ Prefer to read the code first? It is [one plain-text PowerShell file](nvidia-ssd
 - [Manual fix without the tool](#manual-fix-without-the-tool)
 - [FAQ](#faq)
 - [Sources](#sources)
+- [Support the project](#-support-the-project)
 
 ## Why this tool
 
@@ -236,5 +237,21 @@ Issues and pull requests are welcome. For bug reports, include the full scan out
 ## License
 
 [MIT](LICENSE). Use at your own risk. NVIDIA, GeForce and related names are trademarks of NVIDIA Corporation; this project is independent and not endorsed by NVIDIA.
+
+## ☕ Support the project
+
+If this tool saved your SSD from a few terabytes of pointless writes, consider buying me a coffee. Your support keeps the tool updated for new NVIDIA drivers and the project maintained. The tool is free and always will be — donations are entirely optional.
+
+**🪙 Bitcoin (BTC)** — Bitcoin Mainnet network
+
+```text
+12zBsP3LBp352tqCsENS997j1AoCybtW6M
+```
+
+**Binance Pay** — direct user-to-user transfer (Pay ID)
+
+```text
+1247002770
+```
 
 <sub>Keywords: NVDisplay.Container.exe high disk usage, NVDisplay.Container.exe constant writes, NVIDIA driver SSD writes, nvlog.nvlgstg, _nvtopps, NvTopps plugin, NVIDIA Display Container LS disk usage, GeForce 621.24 SSD bug, GeForce 621.14 SSD bug, NVIDIA driver killing SSD, NVIDIA driver writing to SSD at idle, NVIDIA container 100% disk Windows 11, rollback NVIDIA driver 621.01, SSD wear TBW.</sub>
