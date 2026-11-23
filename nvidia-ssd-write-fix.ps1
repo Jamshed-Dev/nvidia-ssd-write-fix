@@ -38,7 +38,7 @@ $HighWriteMBps      = 2.0
 $InstallDir         = Join-Path $env:ProgramData 'nvidia-ssd-write-fix'
 $GuardLog           = Join-Path $InstallDir 'guard.log'
 $TaskName           = 'NVIDIA SSD Write Guard'
-$ScriptUrl          = 'https://raw.githubusercontent.com/USERNAME/nvidia-ssd-write-fix/main/nvidia-ssd-write-fix.ps1'
+$ScriptUrl          = 'https://raw.githubusercontent.com/Jamshed-Dev/nvidia-ssd-write-fix/main/nvidia-ssd-write-fix.ps1'
 # ------------------------------------------------------------------------------
 
 function Test-IsAdmin {

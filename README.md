@@ -11,7 +11,7 @@ If Resource Monitor or Task Manager shows **NVDisplay.Container.exe with high di
 Press **Win + X → Terminal (Admin)** (or Windows PowerShell (Admin)) and paste:
 
 ```powershell
-irm https://raw.githubusercontent.com/USERNAME/nvidia-ssd-write-fix/main/nvidia-ssd-write-fix.ps1 | iex
+irm https://raw.githubusercontent.com/Jamshed-Dev/nvidia-ssd-write-fix/main/nvidia-ssd-write-fix.ps1 | iex
 ```
 
 The menu opens instantly. Choose **1** to check, **2** to stop the writes now, **3** for the permanent fix. If you are not running as Administrator, the tool opens an elevated window for you.
