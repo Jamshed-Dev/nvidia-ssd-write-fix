@@ -14,7 +14,7 @@ Press **Win + X → Terminal (Admin)** (or Windows PowerShell (Admin)) and paste
 irm https://raw.githubusercontent.com/Jamshed-Dev/nvidia-ssd-write-fix/main/nvidia-ssd-write-fix.ps1 | iex
 ```
 
-The menu opens instantly. Choose **1** to check, **2** to stop the writes now, **3** for the permanent fix. If you are not running as Administrator, the tool opens an elevated window for you.
+The tool scans your PC, shows whether your SSD is at risk, and recommends a fix — **just press Enter**. If you are not running as Administrator, it opens an elevated window for you.
 
 Prefer to read the code first? [View the script](nvidia-ssd-write-fix.ps1) — it is a single plain-text PowerShell file.
 
@@ -48,7 +48,7 @@ Prefer to read the code first? [View the script](nvidia-ssd-write-fix.ps1) — i
 | 621.14 | 32.0.16.2114 | ⚠️ Affected |
 | 621.01 | 32.0.16.2101 | ✅ Reported OK |
 
-Fastest check: run `fix.bat` and choose **1. Check**. It measures the real write rate of `NVDisplay.Container.exe` over 10 seconds and tells you if it is excessive.
+Fastest check: run the one-line command above (or `fix.bat`). It scans automatically, measures the real write rate of `NVDisplay.Container.exe` over 10 seconds and tells you if it is excessive.
 
 ## One-click fix
 
@@ -56,28 +56,39 @@ Alternative to the one-line command above:
 
 1. Download this repository: **Code → Download ZIP**, then extract it
 2. Double-click **`fix.bat`** (click **Yes** on the administrator prompt)
-3. Pick an option:
+## What you will see
+
+The tool scans your PC automatically (10 seconds), tells you in plain words whether your SSD is at risk, and recommends what to do. **Just press Enter to run the recommended fix.**
 
 ```
-=== NVIDIA SSD Write Fix ===
-1. Check (driver version + live SSD write rate)
-2. Quick fix (restart service, stop writes now)
-3. Permanent fix (roll back to driver 621.01)
-4. Install auto-guard (hourly check, auto-restart)
-5. Remove auto-guard
-```
+  ==========================================================
+    NVIDIA SSD Write Fix
+    Stops NVDisplay.Container.exe from wearing out your SSD
+  ==========================================================
 
-Recommended: **1 → 2 → 3**.
+  GPU         NVIDIA GeForce RTX 3060
+  Driver      621.24                            [HAS THE BUG]
+  SSD writes  13.4 MB/s  (~47.1 GB per hour)    [TOO HIGH]
+
+  >> Your SSD is being worn out right now. Press Enter to stop it.
+
+  What would you like to do?
+    [1] Stop the SSD writes now                   10 sec, temporary  <- recommended
+    [2] Fix permanently                           installs driver 621.01
+    [3] Turn on auto-protect (checks every hour)  runs in background
+    [4] Scan again                                10 sec
+    [Q] Quit
+```
 
 ## What each option does
 
 | Option | What happens | Permanent? |
 |---|---|---|
-| **1. Check** | Shows GPU, driver version, and live MB/s written by NVDisplay.Container.exe | — |
-| **2. Quick fix** | Restarts *NVIDIA Display Container LS* and resets the runaway `nvlog.nvlgstg` log. Writes drop immediately (tested: 13.4 MB/s → 0.27 MB/s) | No — the bug can return |
-| **3. Permanent fix** | Creates a System Restore Point, downloads driver **621.01** from `download.nvidia.com` (desktop or laptop package auto-detected), verifies the NVIDIA digital signature, and opens the installer | Yes |
-| **4. Auto-guard** | Scheduled task that checks every hour and restarts the service if writes exceed 2 MB/s. Log: `C:\ProgramData\nvidia-ssd-write-fix\guard.log` | Yes, while installed |
-| **5. Remove auto-guard** | Deletes the scheduled task and its files | — |
+| **1. Stop the SSD writes now** | Restarts *NVIDIA Display Container LS* and resets the runaway `nvlog.nvlgstg` log. Writes drop immediately (tested: 13.4 MB/s → 0.27 MB/s) | No — the bug can return |
+| **2. Fix permanently** | Creates a System Restore Point, downloads driver **621.01** from `download.nvidia.com` (desktop or laptop package auto-detected), verifies the NVIDIA digital signature, and opens the installer | Yes |
+| **3. Auto-protect** | Scheduled task that checks every hour and restarts the service if writes exceed 2 MB/s. Log: `C:\ProgramData\nvidia-ssd-write-fix\guard.log` | Yes, while installed |
+| **4. Scan again** | Re-measures the driver version and live MB/s written by NVDisplay.Container.exe | — |
+| **5. Turn off auto-protect** | Shown only when auto-protect is on. Deletes the scheduled task and its files | — |
 
 In the NVIDIA installer choose **Custom (Advanced) → Perform a clean installation**, then restart. Afterwards **turn off automatic driver updates in the NVIDIA App** so 621.24 is not reinstalled, and update again only once NVIDIA's release notes mention a fix.
 

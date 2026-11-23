@@ -79,53 +79,67 @@ function Measure-WriteRate {
     return [math]::Round($bytes / 1MB / $SampleSeconds, 2)
 }
 
-function Invoke-Check {
+function Get-Diagnosis {
     $gpu = Get-NvidiaGpu
-    if (-not $gpu) {
-        Write-Status 'No NVIDIA GPU found. This tool does not apply to this PC.' 'Yellow'
-        return
-    }
+    if (-not $gpu) { return $null }
     $nvVersion = ConvertTo-NvidiaVersion $gpu.DriverVersion
-    Write-Status ("GPU            : {0}" -f $gpu.Name)
-    Write-Status ("Driver version : {0} ({1})" -f $nvVersion, $gpu.DriverVersion)
-
-    $isAffected = $AffectedVersions -contains $nvVersion
-    if ($isAffected) {
-        Write-Status 'Driver status  : AFFECTED version (reported SSD write bug)' 'Red'
-    } else {
-        Write-Status 'Driver status  : not on the known-affected list' 'Green'
-    }
-
-    Write-Status "Measuring $ProcessName writes for $SampleSeconds seconds..."
+    Write-Status "  Scanning your PC, please wait $SampleSeconds seconds..." 'DarkGray'
     $rate = Measure-WriteRate
-    if ($null -eq $rate) {
-        Write-Status "$ProcessName is not running." 'Yellow'
+    return [pscustomobject]@{
+        GpuName    = $gpu.Name
+        Version    = $nvVersion
+        IsAffected = $AffectedVersions -contains $nvVersion
+        IsSafe     = $nvVersion -eq $SafeVersion
+        Rate       = $rate
+        IsHigh     = ($null -ne $rate) -and ($rate -ge $HighWriteMBps)
+    }
+}
+
+function Write-Row([string]$Label, [string]$Value, [string]$Tag, [string]$TagColor) {
+    Write-Host ('  {0,-12}' -f $Label) -NoNewline -ForegroundColor DarkGray
+    Write-Host ('{0,-34}' -f $Value) -NoNewline
+    Write-Host $Tag -ForegroundColor $TagColor
+}
+
+function Show-Report($Diagnosis) {
+    Write-Host ''
+    if (-not $Diagnosis) {
+        Write-Status '  No NVIDIA graphics card found. This tool is not needed on this PC.' 'Yellow'
         return
     }
-    $perHourGB = [math]::Round($rate * 3600 / 1024, 1)
-    $color = if ($rate -ge $HighWriteMBps) { 'Red' } else { 'Green' }
-    Write-Status ("Write rate     : {0} MB/s  (~{1} GB per hour)" -f $rate, $perHourGB) $color
-
-    if ($rate -ge $HighWriteMBps) {
-        Write-Status 'Result: excessive SSD writes detected. Use option 2 now, option 3 for a permanent fix.' 'Red'
+    Write-Row 'GPU' $Diagnosis.GpuName '' 'Gray'
+    if ($Diagnosis.IsAffected) {
+        Write-Row 'Driver' $Diagnosis.Version '[HAS THE BUG]' 'Red'
     } else {
-        Write-Status 'Result: write rate looks normal.' 'Green'
+        Write-Row 'Driver' $Diagnosis.Version '[OK]' 'Green'
+    }
+    if ($null -eq $Diagnosis.Rate) {
+        Write-Row 'SSD writes' "$ProcessName not running" '' 'Gray'
+    } else {
+        $perHourGB = [math]::Round($Diagnosis.Rate * 3600 / 1024, 1)
+        $value = '{0} MB/s  (~{1} GB per hour)' -f $Diagnosis.Rate, $perHourGB
+        if ($Diagnosis.IsHigh) { Write-Row 'SSD writes' $value '[TOO HIGH]' 'Red' }
+        else { Write-Row 'SSD writes' $value '[NORMAL]' 'Green' }
+    }
+    Write-Host ''
+    if ($Diagnosis.IsHigh) {
+        Write-Status '  >> Your SSD is being worn out right now. Press Enter to stop it.' 'Red'
+    } elseif ($Diagnosis.IsAffected) {
+        Write-Status '  >> Writes are normal at the moment, but this driver has the bug.' 'Yellow'
+        Write-Status "     Press Enter to fix it permanently (driver $SafeVersion)." 'Yellow'
+    } else {
+        Write-Status '  >> All good. Your SSD is safe. Nothing to fix.' 'Green'
     }
 }
 
 function Invoke-QuickFix {
-    Write-Status "Restarting $ServiceName..."
+    Write-Status '  Restarting the NVIDIA Display Container service...'
     Stop-Service -Name $ServiceName -Force
-    if (Test-Path $LogFile) {
-        Remove-Item $LogFile -Force
-        Write-Status "Removed runaway log: $LogFile"
-    }
+    Remove-Item $LogFile -Force -ErrorAction SilentlyContinue
     Start-Service -Name $ServiceName
-    Write-Status 'Service restarted. Re-measuring...'
+    Write-Status '  Done. The screen may have flickered - that is normal.' 'Green'
+    Write-Status '  This is temporary: the bug can come back. Option 2 fixes it permanently.' 'Yellow'
     Start-Sleep -Seconds 5
-    $rate = Measure-WriteRate
-    Write-Status ("Write rate now: {0} MB/s" -f $rate) 'Green'
-    Write-Status 'Note: this is temporary. The bug can return; use option 3 for a permanent fix.' 'Yellow'
 }
 
 function Test-IsLaptop {
@@ -232,31 +246,84 @@ function Invoke-Guard {
     }
 }
 
+function Show-Header {
+    Write-Host ''
+    Write-Host '  ==========================================================' -ForegroundColor Cyan
+    Write-Host '    NVIDIA SSD Write Fix' -ForegroundColor Cyan
+    Write-Host '    Stops NVDisplay.Container.exe from wearing out your SSD' -ForegroundColor DarkCyan
+    Write-Host '  ==========================================================' -ForegroundColor Cyan
+}
+
+function Test-GuardInstalled {
+    return [bool](Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue)
+}
+
+function Get-RecommendedChoice($Diagnosis) {
+    if ($Diagnosis -and $Diagnosis.IsHigh) { return '1' }
+    if ($Diagnosis -and $Diagnosis.IsAffected) { return '2' }
+    return 'Q'
+}
+
+function Show-Options([string]$Recommended, [bool]$GuardInstalled) {
+    $guardLabel = if ($GuardInstalled) { 'Auto-protect is ON  (checks every hour)' } else { 'Turn on auto-protect (checks every hour)' }
+    $options = @(
+        @('1', 'Stop the SSD writes now', '10 sec, temporary'),
+        @('2', 'Fix permanently', "installs driver $SafeVersion"),
+        @('3', $guardLabel, 'runs in background'),
+        @('4', 'Scan again', '10 sec')
+    )
+    if ($GuardInstalled) { $options += , @('5', 'Turn off auto-protect', '') }
+    $options += , @('Q', 'Quit', '')
+
+    Write-Host ''
+    Write-Host '  What would you like to do?'
+    foreach ($o in $options) {
+        $marker = if ($o[0] -eq $Recommended) { '  <- recommended' } else { '' }
+        $color = if ($o[0] -eq $Recommended) { 'Yellow' } else { 'Gray' }
+        Write-Host ('    [{0}] {1,-42}' -f $o[0], $o[1]) -NoNewline -ForegroundColor $color
+        Write-Host ('{0}' -f $o[2]) -NoNewline -ForegroundColor DarkGray
+        Write-Host $marker -ForegroundColor Yellow
+    }
+    Write-Host ''
+}
+
+function Invoke-Choice([string]$Choice, [bool]$GuardInstalled) {
+    switch ($Choice) {
+        '1' { Invoke-QuickFix }
+        '2' { Invoke-Rollback }
+        '3' { if ($GuardInstalled) { Write-Status '  Auto-protect is already on.' 'Green' } else { Install-Guard } }
+        '5' { Uninstall-Guard }
+    }
+}
+
 function Show-Menu {
+    Show-Header
+    $diagnosis = Get-Diagnosis
     while ($true) {
-        Write-Host ''
-        Write-Host '=== NVIDIA SSD Write Fix ===' -ForegroundColor Cyan
-        Write-Host '1. Check (driver version + live SSD write rate)'
-        Write-Host '2. Quick fix (restart service, stop writes now)'
-        Write-Host "3. Permanent fix (roll back to driver $SafeVersion)"
-        Write-Host '4. Install auto-guard (hourly check, auto-restart)'
-        Write-Host '5. Remove auto-guard'
-        Write-Host 'Q. Quit'
-        $choice = Read-Host 'Choose'
+        Show-Report $diagnosis
+        $recommended = Get-RecommendedChoice $diagnosis
+        $guardInstalled = Test-GuardInstalled
+        Show-Options $recommended $guardInstalled
+
+        $choice = Read-Host "  Type a number and press Enter (just Enter = $recommended)"
         if ($null -eq $choice) { return }
-        try {
-            switch ($choice.ToUpper()) {
-                '1' { Invoke-Check }
-                '2' { Invoke-QuickFix }
-                '3' { Invoke-Rollback }
-                '4' { Install-Guard }
-                '5' { Uninstall-Guard }
-                'Q' { return }
-                default { Write-Status 'Invalid choice.' 'Yellow' }
-            }
-        } catch {
-            Write-Status "Error: $($_.Exception.Message)" 'Red'
+        $choice = $choice.Trim().ToUpper()
+        if ($choice -eq '') { $choice = $recommended }
+        if ($choice -eq 'Q') { Write-Status '  Bye!' 'Cyan'; return }
+        $validChoices = if ($guardInstalled) { '1', '2', '3', '4', '5' } else { '1', '2', '3', '4' }
+        if ($validChoices -notcontains $choice) {
+            Write-Status '  Please type one of the numbers shown.' 'Yellow'
+            continue
         }
+
+        Write-Host ''
+        try {
+            if ($choice -ne '4') { Invoke-Choice $choice $guardInstalled }
+        } catch {
+            Write-Status "  Something went wrong: $($_.Exception.Message)" 'Red'
+        }
+        Write-Host ''
+        $diagnosis = Get-Diagnosis
     }
 }
 
