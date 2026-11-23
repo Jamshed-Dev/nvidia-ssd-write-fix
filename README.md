@@ -13,6 +13,10 @@ If Task Manager or Resource Monitor shows **NVDisplay.Container.exe with high di
 
 > Not affiliated with NVIDIA. No driver files are hosted here. Nothing is sent anywhere.
 
+<p align="center">
+  <img src="docs/screen-bug-detected.svg" alt="NVIDIA SSD Write Fix scan result: driver 621.24 has the bug, NVDisplay.Container.exe writing 47 GB per hour to the SSD" width="708">
+</p>
+
 ## ⚡ Quick start
 
 Press **Win + X → Terminal (Admin)** and paste:
@@ -81,40 +85,25 @@ The tool checks all of this for you in 20 seconds.
 
 ## What you will see
 
-```
-  ==================================================================
-    NVIDIA SSD Write Fix  v2.0
-    Stops NVDisplay.Container.exe from wearing out your SSD
-  ==================================================================
+**1. Scan.** The tool measures how much `NVDisplay.Container.exe` writes, shows the result in plain words and highlights the best next step. Press Enter to run it.
 
-  GPU             NVIDIA GeForce RTX 3060
-  Driver          621.24                                  [HAS THE BUG]
-  Logging plugin  _nvtopps enabled (driver default)
-  Auto-protect    Off
-  SSD writes      47.1 GB/hour  (~1,131 GB/day)           [TOO HIGH]
+<p align="center">
+  <img src="docs/screen-bug-detected.svg" alt="Scan result: NVIDIA driver 621.24 has the bug, NVDisplay.Container.exe writing 47.1 GB per hour, fix recommended" width="708">
+</p>
 
-  >> Your SSD is being worn out right now.
-     Press Enter to fix it in about 30 seconds. You keep your current driver.
+**2. Fix and verify.** It turns off the `_nvtopps` plugin, restarts the service, confirms it in NVIDIA's own log, and measures again — Before vs. After.
 
-  What would you like to do?
-    [1] Fix now (turn off the buggy logging plugin)   ~30 s, keeps driver, undoable  <- recommended
-    [2] Roll back driver to 621.01                    ~10 min, zero side effects
-    [3] Turn on auto-protect                          re-applies fix after updates
-    [4] Scan again                                    20 s
-    [5] Long scan                                     5 min, most accurate
-    [Q] Quit
-```
+<p align="center">
+  <img src="docs/screen-fix-verified.svg" alt="After the fix: _nvtopps plugin disabled, SSD writes dropped from 47.1 GB per hour to 0 MB per hour, confirmed by NVIDIA service log" width="708">
+</p>
 
-After the fix:
+**3. Stay protected.** With auto-protect on, the fix is re-applied automatically if an NVIDIA driver update removes it.
 
-```
-  Logging plugin  _nvtopps disabled                       [FIX APPLIED]
-  SSD writes      0 MB/hour  (~0.0 GB/day)                [NORMAL]
-  Before          47.1 GB/hour  (~1,131 GB/day)
+<p align="center">
+  <img src="docs/screen-all-good.svg" alt="All good: bug blocked, auto-protect on, SSD writes normal" width="708">
+</p>
 
-  >> Fixed. Note: an NVIDIA driver update can silently undo this fix.
-     Press Enter to turn on auto-protect, which re-applies it for you.
-```
+<sub>Screenshots are generated from the tool's real UI code with [`docs/render-screenshots.ps1`](docs/render-screenshots.ps1).</sub>
 
 **Verdicts:** 500 MB/hour or more = bug; 50–500 MB/hour = above normal; below 50 MB/hour = normal.
 

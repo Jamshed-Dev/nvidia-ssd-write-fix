@@ -39,7 +39,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 # ---- Configuration: update when NVIDIA ships a fixed driver -----------------
-$AppVersion       = '2.0'
+$AppVersion       = '2.1'
 $AffectedVersions = @('621.14', '621.24')
 $SafeVersion      = '621.01'
 $DownloadBase     = 'https://us.download.nvidia.com/Windows'
@@ -60,16 +60,40 @@ $TaskName         = 'NVIDIA SSD Write Guard'
 
 $Seconds = [math]::Min(3600, [math]::Max(5, $Seconds))
 
-# ============================== Output helpers ==============================
+# ================================ UI toolkit ================================
+# Glyphs are built from code points so the file stays pure ASCII (safe for
+# Windows PowerShell 5.1, which reads BOM-less scripts in the ANSI code page).
+
+$UiWidth = 72
+$Glyph = @{
+    H  = [string][char]0x2500; V  = [string][char]0x2502
+    TL = [string][char]0x250C; TR = [string][char]0x2510
+    BL = [string][char]0x2514; BR = [string][char]0x2518
+    DH = [string][char]0x2550; DV = [string][char]0x2551
+    DTL = [string][char]0x2554; DTR = [string][char]0x2557
+    DBL = [string][char]0x255A; DBR = [string][char]0x255D
+    Full = [string][char]0x2588; Shade = [string][char]0x2591
+    Arrow = [string][char]0x25BA; Back = [string][char]0x25C4; Dot = [string][char]0x25CF
+}
+
+function Write-Seg([string]$Text, [string]$Fg = 'Gray', [string]$Bg = '') {
+    if ($Bg) { Write-Host $Text -NoNewline -ForegroundColor $Fg -BackgroundColor $Bg }
+    else { Write-Host $Text -NoNewline -ForegroundColor $Fg }
+}
+
+function Get-Fitted([string]$Text, [int]$Length) {
+    if ($Text.Length -gt $Length) { return $Text.Substring(0, $Length - 3) + '...' }
+    return $Text.PadRight($Length)
+}
 
 function Write-Status([string]$Message, [string]$Color = 'Gray') {
     Write-Host $Message -ForegroundColor $Color
 }
 
-function Write-Row([string]$Label, [string]$Value, [string]$Tag = '', [string]$TagColor = 'Gray') {
-    Write-Host ('  {0,-16}' -f $Label) -NoNewline -ForegroundColor DarkGray
-    Write-Host ('{0,-40}' -f $Value) -NoNewline
-    Write-Host $Tag -ForegroundColor $TagColor
+function Write-Step([string]$Text, [string]$Color = 'Gray') {
+    $arrowColor = if ($Color -eq 'Gray') { 'Cyan' } else { $Color }
+    Write-Seg ('  ' + $Glyph.Arrow + ' ') $arrowColor
+    Write-Host $Text -ForegroundColor $Color
 }
 
 function Format-Rate([double]$MBh) {
@@ -79,11 +103,81 @@ function Format-Rate([double]$MBh) {
 }
 
 function Show-Header {
+    $version = "v$AppVersion  "
     Write-Host ''
-    Write-Host '  ==================================================================' -ForegroundColor Cyan
-    Write-Host "    NVIDIA SSD Write Fix  v$AppVersion" -ForegroundColor Cyan
-    Write-Host '    Stops NVDisplay.Container.exe from wearing out your SSD' -ForegroundColor DarkCyan
-    Write-Host '  ==================================================================' -ForegroundColor Cyan
+    Write-Seg ('  ' + $Glyph.DTL + ($Glyph.DH * $UiWidth) + $Glyph.DTR) Cyan; Write-Host ''
+    Write-Seg ('  ' + $Glyph.DV) Cyan
+    Write-Seg ('  NVIDIA SSD WRITE FIX'.PadRight($UiWidth - $version.Length)) White
+    Write-Seg $version DarkGray
+    Write-Seg $Glyph.DV Cyan; Write-Host ''
+    Write-Seg ('  ' + $Glyph.DV) Cyan
+    Write-Seg ('  Stops NVDisplay.Container.exe from wearing out your SSD'.PadRight($UiWidth)) DarkCyan
+    Write-Seg $Glyph.DV Cyan; Write-Host ''
+    Write-Seg ('  ' + $Glyph.DBL + ($Glyph.DH * $UiWidth) + $Glyph.DBR) Cyan; Write-Host ''
+}
+
+function Write-CardTop([string]$Title) {
+    Write-Host ''
+    Write-Seg ('  ' + $Glyph.TL + $Glyph.H + ' ') DarkGray
+    Write-Seg $Title White
+    Write-Seg (' ' + ($Glyph.H * ($UiWidth - $Title.Length - 3)) + $Glyph.TR) DarkGray
+    Write-Host ''
+}
+
+function Write-CardBottom {
+    Write-Seg ('  ' + $Glyph.BL + ($Glyph.H * $UiWidth) + $Glyph.BR) DarkGray
+    Write-Host ''
+}
+
+# Row layout inside the card: 2 margin + 16 label + 38 value + 14 badge + 2 margin = 72
+function Write-CardRow([string]$Label, [string]$Value, [string]$Badge = '', [string]$Fg = 'Black', [string]$Bg = '') {
+    Write-Seg ('  ' + $Glyph.V + '  ') DarkGray
+    Write-Seg $Label.PadRight(16) DarkGray
+    Write-Seg (Get-Fitted $Value 38) White
+    if ($Badge) {
+        $padLeft = [int][math]::Floor((12 - $Badge.Length) / 2)
+        Write-Seg (' ' * ($padLeft + 1) + $Badge).PadRight(14) $Fg $Bg
+    } else {
+        Write-Seg (' ' * 14)
+    }
+    Write-Seg ('  ' + $Glyph.V) DarkGray
+    Write-Host ''
+}
+
+function Write-Banner([string]$Title, [string]$Fg, [string]$Bg, [string[]]$Lines = @()) {
+    Write-Host ''
+    Write-Seg '  '
+    Write-Seg ((' ' + $Glyph.Dot + '  ' + $Title).PadRight($UiWidth + 2)) $Fg $Bg
+    Write-Host ''
+    foreach ($line in $Lines) { Write-Status "     $line" 'Gray' }
+}
+
+function Write-MenuItem([string]$Key, [string]$Label, [string]$Hint, [bool]$IsRecommended) {
+    Write-Seg '   '
+    if ($IsRecommended) { Write-Seg " $Key " Black Yellow } else { Write-Seg " $Key " White DarkGray }
+    $labelColor = if ($IsRecommended) { 'Yellow' } else { 'White' }
+    Write-Seg ('  ' + (Get-Fitted $Label 38)) $labelColor
+    Write-Seg (Get-Fitted $Hint 25) DarkGray
+    if ($IsRecommended) { Write-Seg ($Glyph.Back + ' BEST') Yellow }
+    Write-Host ''
+}
+
+function Write-ScanProgress([double]$Elapsed, [int]$Total, [double]$WrittenMB) {
+    $barWidth = 26
+    $ratio = [math]::Min(1.0, $Elapsed / $Total)
+    $filled = [int][math]::Floor($ratio * $barWidth)
+    $rateMBh = if ($Elapsed -gt 0) { $WrittenMB / $Elapsed * 3600 } else { 0 }
+    $color = if ($rateMBh -ge $BugMBh) { 'Red' } elseif ($rateMBh -ge $WarnMBh) { 'Yellow' } else { 'Green' }
+    $left = [int][math]::Ceiling([math]::Max(0, $Total - $Elapsed))
+    Write-Seg "`r  "
+    Write-Seg 'SCANNING ' White
+    Write-Seg ($Glyph.Full * $filled) $color
+    Write-Seg ($Glyph.Shade * ($barWidth - $filled)) DarkGray
+    Write-Seg (' {0,3}%  {1,4}s left  {2,8:N1} MB written ' -f [int]($ratio * 100), $left, $WrittenMB)
+}
+
+function Set-WindowTitle([string]$Title) {
+    try { $Host.UI.RawUI.WindowTitle = $Title } catch { Write-Verbose 'Console title not supported.' }
 }
 
 # ============================== System probes ===============================
@@ -165,25 +259,14 @@ function Get-WrittenMB($Start, $Last) {
     return $bytes / 1MB
 }
 
-function Write-ScanProgress([double]$Elapsed, [int]$Total, [double]$WrittenMB) {
-    $ratio = [math]::Min(1.0, $Elapsed / $Total)
-    $filled = [int][math]::Floor($ratio * 30)
-    $rateMBh = if ($Elapsed -gt 0) { $WrittenMB / $Elapsed * 3600 } else { 0 }
-    $color = if ($rateMBh -ge $BugMBh) { 'Red' } elseif ($rateMBh -ge $WarnMBh) { 'Yellow' } else { 'Green' }
-    $left = [int][math]::Ceiling([math]::Max(0, $Total - $Elapsed))
-    Write-Host ("`r  [") -NoNewline
-    Write-Host ('#' * $filled) -NoNewline -ForegroundColor $color
-    Write-Host ('.' * (30 - $filled)) -NoNewline -ForegroundColor DarkGray
-    Write-Host ('] {0,3}%  {1,4}s left  {2,9:N1} MB written ' -f [int]($ratio * 100), $left, $WrittenMB) -NoNewline
-}
-
 # ================================ Diagnosis =================================
 
 function Get-Diagnosis([int]$DurationSeconds) {
     $state = Get-SystemState
     $rate = $null
     if ($state.HasGpu -and $state.HasService) {
-        Write-Status "`n  Measuring SSD writes for $DurationSeconds seconds. Keep the PC idle..." 'DarkGray'
+        Write-Host ''
+        Write-Step "Measuring SSD writes for $DurationSeconds seconds - keep the PC idle" DarkGray
         $rate = Measure-WriteRate $DurationSeconds
     }
     return New-Diagnosis $state $rate
@@ -217,74 +300,73 @@ function Get-RecommendedChoice($Diagnosis) {
 }
 
 function Show-StateRows($State) {
-    Write-Host ''
-    Write-Row 'GPU' $State.GpuName
-    if ($State.IsAffected) { Write-Row 'Driver' $State.Version '[HAS THE BUG]' 'Red' }
-    elseif ($State.Version -eq $SafeVersion) { Write-Row 'Driver' $State.Version '[CLEAN]' 'Green' }
-    else { Write-Row 'Driver' $State.Version '[NOT REPORTED]' 'DarkGray' }
-    if ($State.PluginDisabled) { Write-Row 'Logging plugin' '_nvtopps disabled' '[FIX APPLIED]' 'Green' }
-    else { Write-Row 'Logging plugin' '_nvtopps enabled (driver default)' }
-    if ($State.GuardInstalled) { Write-Row 'Auto-protect' 'On' '[ON]' 'Green' }
-    else { Write-Row 'Auto-protect' 'Off' }
+    Write-CardRow 'GPU' $State.GpuName
+    if ($State.IsAffected -and $State.PluginDisabled) { Write-CardRow 'Driver' $State.Version 'BUG BLOCKED' Black DarkYellow }
+    elseif ($State.IsAffected) { Write-CardRow 'Driver' $State.Version 'HAS THE BUG' White DarkRed }
+    elseif ($State.Version -eq $SafeVersion) { Write-CardRow 'Driver' $State.Version 'CLEAN' Black Green }
+    else { Write-CardRow 'Driver' $State.Version 'NOT REPORTED' Gray DarkGray }
+    if ($State.PluginDisabled) { Write-CardRow 'Logging plugin' '_nvtopps disabled' 'FIX APPLIED' Black Green }
+    else { Write-CardRow 'Logging plugin' '_nvtopps enabled (driver default)' }
+    if ($State.GuardInstalled) { Write-CardRow 'Auto-protect' 'Watching in the background' 'ON' Black Green }
+    else { Write-CardRow 'Auto-protect' 'Off' }
+}
+
+function Show-RateRows($Diagnosis, $Before) {
+    if ($null -eq $Diagnosis.Rate) { Write-CardRow 'SSD writes' "$ProcessName not running"; return }
+    switch ($Diagnosis.Verdict) {
+        { $_ -in 'Bug', 'StillHigh' } { Write-CardRow 'SSD writes' (Format-Rate $Diagnosis.Rate) 'TOO HIGH' White Red; break }
+        'Elevated' { Write-CardRow 'SSD writes' (Format-Rate $Diagnosis.Rate) 'ABOVE NORMAL' Black Yellow; break }
+        default { Write-CardRow 'SSD writes' (Format-Rate $Diagnosis.Rate) 'NORMAL' Black Green }
+    }
+    if ($null -ne $Before -and $null -ne $Before.Rate) { Write-CardRow 'Before' (Format-Rate $Before.Rate) }
 }
 
 function Show-Report($Diagnosis, $Before = $null) {
-    $s = $Diagnosis.State
-    if (-not $s.HasGpu) { Write-Status "`n  No NVIDIA graphics card found. This tool is not needed on this PC." 'Yellow'; return }
-    Show-StateRows $s
-    if ($null -ne $Diagnosis.Rate) {
-        $tag, $color = switch ($Diagnosis.Verdict) {
-            { $_ -in 'Bug', 'StillHigh' } { '[TOO HIGH]', 'Red'; break }
-            'Elevated' { '[ABOVE NORMAL]', 'Yellow'; break }
-            default { '[NORMAL]', 'Green' }
-        }
-        Write-Row 'SSD writes' (Format-Rate $Diagnosis.Rate) $tag $color
-        if ($null -ne $Before -and $null -ne $Before.Rate) {
-            Write-Row 'Before' (Format-Rate $Before.Rate) '' 'DarkGray'
-        }
+    if ($Diagnosis.State.HasGpu) {
+        Write-CardTop 'YOUR PC'
+        Show-StateRows $Diagnosis.State
+        Show-RateRows $Diagnosis $Before
+        Write-CardBottom
     }
-    Write-Host ''
     Show-Advice $Diagnosis
 }
 
 function Show-Advice($Diagnosis) {
     $s = $Diagnosis.State
     switch ($Diagnosis.Verdict) {
-        'NotRunning' {
-            Write-Status '  >> NVIDIA Display Container is not running, so there is nothing to measure.' 'Yellow' }
-        'Bug' {
-            Write-Status '  >> Your SSD is being worn out right now.' 'Red'
-            Write-Status '     Press Enter to fix it in about 30 seconds. You keep your current driver.' 'Red' }
-        'StillHigh' {
-            Write-Status '  >> The plugin fix is on, but writes are still high.' 'Red'
-            Write-Status "     Press Enter to roll back to driver $SafeVersion - this fixes it for sure." 'Red' }
+        'NoGpu' { Write-Banner 'NO NVIDIA GRAPHICS CARD FOUND' White DarkGray @('This tool is not needed on this PC.') }
+        'NotRunning' { Write-Banner 'NOTHING TO MEASURE' White DarkGray @('NVIDIA Display Container is not running on this PC.') }
+        'Bug' { Write-Banner 'YOUR SSD IS BEING WORN OUT RIGHT NOW' White DarkRed @(
+                'Press Enter to fix it in about 30 seconds. You keep your current driver.') }
+        'StillHigh' { Write-Banner 'WRITES ARE STILL HIGH WITH THE FIX ON' White DarkRed @(
+                "Press Enter to roll back to driver $SafeVersion - this fixes it for sure.") }
         'Elevated' {
-            Write-Status '  >> Writes are above normal. The bug grows the longer the PC stays on.' 'Yellow'
-            if ($s.PluginDisabled) { Write-Status '     Press Enter for a 5-minute scan to be sure.' 'Yellow' }
-            else { Write-Status '     Press Enter to apply the fix now.' 'Yellow' } }
+            $next = if ($s.PluginDisabled) { 'Press Enter for a 5-minute scan to be sure.' } else { 'Press Enter to apply the fix now.' }
+            Write-Banner 'WRITES ARE ABOVE NORMAL' Black DarkYellow @('The bug grows the longer the PC stays on.', $next) }
         'AtRisk' {
-            Write-Status '  >> Normal right now, but your driver has the bug and it builds up over time.' 'Yellow'
-            if ($s.UptimeHours -lt 2) { Write-Status "     (PC was started $($s.UptimeHours) h ago, so the bug may not show yet.)" 'DarkGray' }
-            Write-Status '     Press Enter to fix it before it starts.' 'Yellow' }
-        'FixedUnguarded' {
-            Write-Status '  >> Fixed. Note: an NVIDIA driver update can silently undo this fix.' 'Green'
-            Write-Status '     Press Enter to turn on auto-protect, which re-applies it for you.' 'Green' }
+            $lines = @('Writes are normal right now, but the bug builds up over time.')
+            if ($s.UptimeHours -lt 2) { $lines += "This PC was started $($s.UptimeHours) h ago, so the bug may not show yet." }
+            Write-Banner 'YOUR DRIVER HAS THE BUG' Black DarkYellow ($lines + 'Press Enter to fix it before it starts.') }
+        'FixedUnguarded' { Write-Banner 'FIXED - YOUR SSD IS SAFE' Black Green @(
+                'An NVIDIA driver update can silently undo this fix.',
+                'Press Enter to turn on auto-protect, which re-applies it for you.') }
         default {
-            Write-Status '  >> All good. Your SSD is safe.' 'Green' }
+            $lines = if ($s.GuardInstalled) { @('Auto-protect keeps it that way, even after driver updates.') } else { @() }
+            Write-Banner 'ALL GOOD - YOUR SSD IS SAFE' Black Green $lines }
     }
 }
 
 # ================================= Actions ==================================
 
 function Restart-NvService {
-    Write-Status '  Restarting NVIDIA Display Container (the screen may flicker)...'
+    Write-Step 'Restarting NVIDIA Display Container (the screen may flicker)'
     Restart-Service -Name $ServiceName -Force
     $timer = [Diagnostics.Stopwatch]::StartNew()
     while ($timer.Elapsed.TotalSeconds -lt 15) {
         if ((Get-NvProcess).Count -gt 0) { Start-Sleep -Seconds 2; return }
         Start-Sleep -Milliseconds 500
     }
-    Write-Status '  Warning: the service restarted but its process did not come back within 15 s.' 'Yellow'
+    Write-Step 'The service restarted but its process did not come back within 15 s.' Yellow
 }
 
 function Enable-PluginFix {
@@ -312,20 +394,20 @@ function Test-PluginSkippedInLog {
 }
 
 function Invoke-PluginFix {
-    Write-Status '  Turning off the _nvtopps logging plugin (one registry value)...'
+    Write-Step 'Turning off the _nvtopps logging plugin (one registry value)'
     Enable-PluginFix
     Restart-NvService
     Remove-Item $NvLogFile -Force -ErrorAction SilentlyContinue
-    if (Test-PluginSkippedInLog) { Write-Status '  Confirmed: NVIDIA service log reports the plugin is no longer loaded.' 'Green' }
-    Write-Status '  Fix applied. Measuring again to verify...' 'Green'
+    if (Test-PluginSkippedInLog) { Write-Step "Confirmed by NVIDIA's own service log: plugin no longer loaded" Green }
+    Write-Step 'Fix applied. Measuring again to verify...' Green
 }
 
 function Invoke-UndoAll {
-    Write-Status '  Removing all changes made by this tool...'
+    Write-Step 'Removing all changes made by this tool'
     Uninstall-Guard
     Disable-PluginFix
     Restart-NvService
-    Write-Status '  Done. Everything is back to the NVIDIA defaults.' 'Green'
+    Write-Step 'Done. Everything is back to the NVIDIA defaults.' Green
 }
 
 function Test-IsLaptop {
@@ -341,9 +423,9 @@ function New-RestorePoint {
     try {
         Enable-ComputerRestore -Drive "$env:SystemDrive\" -ErrorAction SilentlyContinue
         Checkpoint-Computer -Description "Before NVIDIA $SafeVersion rollback" -RestorePointType MODIFY_SETTINGS
-        Write-Status '  System Restore Point created.' 'Green'
+        Write-Step 'System Restore Point created.' Green
     } catch {
-        Write-Status "  Could not create a restore point ($($_.Exception.Message)). Continuing." 'Yellow'
+        Write-Step "Could not create a restore point ($($_.Exception.Message)). Continuing." Yellow
     }
 }
 
@@ -352,7 +434,7 @@ function Get-VerifiedInstaller([string]$Url) {
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
     $installer = Join-Path $dir (Split-Path $Url -Leaf)
     if (-not (Test-Path $installer)) {
-        Write-Status "  Downloading NVIDIA $SafeVersion from nvidia.com (about 1 GB)..."
+        Write-Step "Downloading NVIDIA $SafeVersion from nvidia.com (about 1 GB)"
         Start-BitsTransfer -Source $Url -Destination $installer
     }
     $signature = Get-AuthenticodeSignature $installer
@@ -361,26 +443,25 @@ function Get-VerifiedInstaller([string]$Url) {
         Remove-Item $installer -Force
         throw "Signature check failed ($($signature.Status)). The file was deleted."
     }
-    Write-Status '  Signature verified: NVIDIA Corporation.' 'Green'
+    Write-Step 'Signature verified: NVIDIA Corporation.' Green
     return $installer
 }
 
 function Invoke-Rollback {
-    if ((Get-SystemState).Version -eq $SafeVersion) { Write-Status "  Driver $SafeVersion is already installed." 'Green'; return }
+    if ((Get-SystemState).Version -eq $SafeVersion) { Write-Step "Driver $SafeVersion is already installed." Green; return }
     $url = Get-DriverUrl
     try { Invoke-WebRequest -Uri $url -Method Head -UseBasicParsing -TimeoutSec 30 | Out-Null }
     catch {
-        Write-Status "  Driver package not found at $url" 'Red'
-        Write-Status "  Download $SafeVersion manually: https://www.nvidia.com/en-us/drivers/" 'Yellow'
+        Write-Step "Driver package not found at $url" Red
+        Write-Step "Download $SafeVersion manually: https://www.nvidia.com/en-us/drivers/" Yellow
         return
     }
     New-RestorePoint
     $installer = Get-VerifiedInstaller $url
-    Write-Status ''
-    Write-Status '  The NVIDIA installer opens now. In it choose:' 'Cyan'
-    Write-Status '    NVIDIA Graphics Driver -> Agree -> Custom (Advanced)' 'Cyan'
-    Write-Status '    -> tick "Perform a clean installation" -> Next -> Restart' 'Cyan'
-    Write-Status '  Then turn off automatic driver updates in the NVIDIA App.' 'Cyan'
+    Write-Banner 'THE NVIDIA INSTALLER OPENS NOW' Black Cyan @(
+        'NVIDIA Graphics Driver -> Agree -> Custom (Advanced)',
+        '-> tick "Perform a clean installation" -> Next -> Restart',
+        'Then turn off automatic driver updates in the NVIDIA App.')
     Start-Process -FilePath $installer
 }
 
@@ -401,15 +482,15 @@ function Install-Guard {
     $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest
     Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger @($atStartup, $hourly) `
         -Principal $principal -Force | Out-Null
-    Write-Status '  Auto-protect is on. It runs at startup and every hour.' 'Green'
-    Write-Status "  Log: $GuardLog" 'DarkGray'
+    Write-Step 'Auto-protect is on. It runs at startup and every hour.' Green
+    Write-Step "Log: $GuardLog" DarkGray
 }
 
 function Uninstall-Guard {
     if (-not (Test-GuardInstalled)) { return }
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
     Remove-Item $InstallDir -Recurse -Force -ErrorAction SilentlyContinue
-    Write-Status '  Auto-protect is off.' 'Green'
+    Write-Step 'Auto-protect is off.' Green
 }
 
 function Write-GuardLog([string]$Message) {
@@ -439,9 +520,9 @@ function Invoke-Guard {
 function Show-Options([string]$Recommended, $State) {
     $guardLabel = if ($State.GuardInstalled) { 'Turn off auto-protect' } else { 'Turn on auto-protect' }
     $options = @(
-        @('1', 'Fix now (turn off the buggy logging plugin)', '~30 s, keeps driver, undoable'),
-        @('2', "Roll back driver to $SafeVersion", '~10 min, zero side effects'),
-        @('3', $guardLabel, 're-applies fix after updates'),
+        @('1', 'Fix now (turn off the buggy plugin)', '~30 s, keeps your driver'),
+        @('2', "Roll back driver to $SafeVersion", 'clean driver, ~10 min'),
+        @('3', $guardLabel, 'survives driver updates'),
         @('4', 'Scan again', "$Seconds s"),
         @('5', 'Long scan', "$([int]($LongScanSeconds / 60)) min, most accurate")
     )
@@ -449,14 +530,9 @@ function Show-Options([string]$Recommended, $State) {
     $options += , @('Q', 'Quit', '')
 
     Write-Host ''
-    Write-Host '  What would you like to do?'
-    foreach ($o in $options) {
-        $isRecommended = $o[0] -eq $Recommended
-        $color = if ($isRecommended) { 'Yellow' } else { 'Gray' }
-        Write-Host ('    [{0}] {1,-46}' -f $o[0], $o[1]) -NoNewline -ForegroundColor $color
-        Write-Host ('{0,-30}' -f $o[2]) -NoNewline -ForegroundColor DarkGray
-        if ($isRecommended) { Write-Host '<- recommended' -ForegroundColor Yellow } else { Write-Host '' }
-    }
+    Write-Status '  WHAT WOULD YOU LIKE TO DO?' White
+    Write-Host ''
+    foreach ($o in $options) { Write-MenuItem $o[0] $o[1] $o[2] ($o[0] -eq $Recommended) }
     Write-Host ''
 }
 
@@ -479,31 +555,41 @@ function Get-ValidChoices($State) {
     return $valid
 }
 
+function Read-Choice([string]$Recommended) {
+    Write-Seg ('  ' + $Glyph.Arrow + ' ') Yellow
+    Write-Seg 'Your choice ' White
+    Write-Seg "(Enter = $Recommended): " DarkGray
+    $choice = Read-Host
+    if ($null -eq $choice) { return 'Q' }
+    $choice = $choice.Trim().ToUpper()
+    if ($choice -eq '') { return $Recommended }
+    return $choice
+}
+
 function Show-Menu {
+    $originalTitle = $Host.UI.RawUI.WindowTitle
+    Set-WindowTitle "NVIDIA SSD Write Fix v$AppVersion"
+    Clear-Host
     Show-Header
     $diagnosis = Get-Diagnosis $Seconds
     $before = $null
     while ($true) {
         Show-Report $diagnosis $before
-        if (-not $diagnosis.State.HasGpu) { return }
+        if (-not $diagnosis.State.HasGpu) { break }
         $recommended = Get-RecommendedChoice $diagnosis
         Show-Options $recommended $diagnosis.State
-
-        $choice = Read-Host "  Type a choice and press Enter (just Enter = $recommended)"
-        if ($null -eq $choice) { return }
-        $choice = $choice.Trim().ToUpper()
-        if ($choice -eq '') { $choice = $recommended }
-        if ($choice -eq 'Q') { Write-Status '  Bye!' 'Cyan'; return }
+        $choice = Read-Choice $recommended
+        if ($choice -eq 'Q') { Write-Host ''; Write-Step 'Bye! Your SSD thanks you.' Cyan; break }
         if ((Get-ValidChoices $diagnosis.State) -notcontains $choice) {
-            Write-Status '  Please type one of the choices shown.' 'Yellow'
+            Write-Step 'Please type one of the keys shown.' Yellow
             continue
         }
-
         Write-Host ''
         $before = if ($choice -in '1', 'U') { $diagnosis } else { $null }
         try { $diagnosis = Invoke-MenuAction $choice $diagnosis }
-        catch { Write-Status "  Something went wrong: $($_.Exception.Message)" 'Red'; $before = $null }
+        catch { Write-Step "Something went wrong: $($_.Exception.Message)" Red; $before = $null }
     }
+    Set-WindowTitle $originalTitle
 }
 
 # ============================ Non-interactive CLI ===========================
